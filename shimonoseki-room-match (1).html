@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>住まい探しの航海図｜三林</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700;800&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  /* ==========================================================
+     この診断ツールは、物件データを自前で持ちません。
+     診断結果は sanbayashi.co.jp のエリア別リアルタイム検索結果
+     ページに直接リンクするため、空室状況の更新作業は不要です。
+     編集が必要な場合は、本体スクリプト内の AREA_LINKS を参照してください。
+     ========================================================== */
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+/* ==========================================================
+   ▼▼▼ エリア別リンク（担当者が編集する場所） ▼▼▼
+   診断結果から、三林サイトの「該当エリアのリアルタイム検索結果ページ」
+   に直接リンクします。ここには物件そのものではなく、
+   sanbayashi.co.jp 上の検索結果ページのURLを登録してください。
+   → 空室が出れば自動的にそのページに載り、決まれば自動的に消えるため、
+      このファイル側は基本的に書き換え不要です。
+
+   【現状の設定について】
+   長府・新下関・綾羅木・安岡は、三林サイトの「駅名」の検索結果ページに
+   実在するURLで確認済みです。
+   唐戸・彦島・川中・山の田は、エリア名そのものの検索結果ページが
+   見当たらなかったため、最寄り駅（下関駅／新下関駅／幡生駅）の
+   検索結果ページで代用しています。より正確なページが三林サイト側の
+   「地域から探す」メニューに見つかれば、下のurlを差し替えてください。
+   ========================================================== */
+const AREA_LINKS = {
+  "長府":   { url:"https://www.sanbayashi.co.jp/chintai/yamaguchi/result/sanyo-chofu-eki.html", note:"長府駅 周辺" },
+  "唐戸":   { url:"https://www.sanbayashi.co.jp/chintai/yamaguchi/result/sanyo-shimonoseki-eki.html", note:"下関駅 周辺（唐戸に最も近い駅）" },
+  "彦島":   { url:"https://www.sanbayashi.co.jp/chintai/yamaguchi/result/shimonoseki-city.html", note:"下関市全体（彦島専用ページが見つからないため）※要確認" },
+  "新下関": { url:"https://www.sanbayashi.co.jp/chintai/yamaguchi/result/sanyo-shinshimonoseki-eki.html", note:"新下関駅 周辺" },
+  "川中":   { url:"https://www.sanbayashi.co.jp/chintai/yamaguchi/result/sanyo-shinshimonoseki-eki.html", note:"新下関駅 周辺（川中地区内のため代用）※要確認" },
+  "山の田": { url:"https://www.sanbayashi.co.jp/chintai/yamaguchi/result/sanyo-hatabu-eki.html", note:"幡生駅 周辺（山の田に近い駅として代用）※要確認" },
+  "綾羅木": { url:"https://www.sanbayashi.co.jp/chintai/yamaguchi/result/sanin-ayaragi-eki.html", note:"綾羅木駅 周辺" },
+  "安岡":   { url:"https://www.sanbayashi.co.jp/chintai/yamaguchi/result/sanin-yasuoka-eki.html", note:"安岡駅 周辺" },
+  "その他": { url:"https://www.sanbayashi.co.jp/chintai/yamaguchi/result/shimonoseki-city.html", note:"下関市 全体" }
+};
+
+const AREAS = Object.keys(AREA_LINKS);
+
+/* お問い合わせ先（編集してください） */
+const CONTACT = { tel:"083-253-5777", telLabel:"083-253-5777", contactUrl:"https://www.sanbayashi.co.jp/contact/" };
+
+/* ==========================================================
+   ▼ 診断設問（12問）。id / text / options（label, tags）
+   tags は下の重み付けキーに対応: budget / layout / parking / pet / area
+   ========================================================== */
+const QUESTIONS = [
+  { id:1, port:"出港", text:"お部屋を探されているのはどなたですか？",
+    options:[
+      {label:"単身（お一人）", tags:{layout:"1R"}},
+      {label:"ご夫婦・カップル", tags:{layout:"1LDK"}},
+      {label:"ご家族", tags:{layout:"2LDK"}},
+      {label:"学生", tags:{layout:"1R"}}
+    ]},
+  { id:2, port:"寄港1", text:"下関市内で、希望のエリアはどこですか？",
+    options: AREAS.map(a=>({label:a, tags:{area:a}}))
+  },
+  { id:3, port:"寄港2", text:"通勤・通学の主な移動手段は？",
+    options:[
+      {label:"電車", tags:{}},
+      {label:"車", tags:{parking:true}},
+      {label:"バス", tags:{}},
+      {label:"自転車・徒歩", tags:{}}
+    ]},
+  { id:4, port:"寄港3", text:"ご希望の家賃帯はどれくらいですか？",
+    options:[
+      {label:"〜4万円台", tags:{budget:"low"}},
+      {label:"5万円台", tags:{budget:"mid"}},
+      {label:"6万円台", tags:{budget:"mid"}},
+      {label:"7万円以上", tags:{budget:"high"}}
+    ]},
+  { id:5, port:"寄港4", text:"希望の間取りは？",
+    options:[
+      {label:"1K・1R", tags:{layout:"1R"}},
+      {label:"1LDK", tags:{layout:"1LDK"}},
+      {label:"2DK・2LDK", tags:{layout:"2LDK"}},
+      {label:"3LDK以上", tags:{layout:"3LDK"}}
+    ]},
+  { id:6, port:"寄港5", text:"駐車場は必要ですか？",
+    options:[
+      {label:"必須", tags:{parking:true}},
+      {label:"あれば嬉しい", tags:{parking:true}},
+      {label:"不要", tags:{parking:false}}
+    ]},
+  { id:7, port:"寄港6", text:"ペットの飼育予定はありますか？",
+    options:[
+      {label:"すでに飼っている", tags:{pet:true}},
+      {label:"将来的に検討中", tags:{pet:true}},
+      {label:"予定なし", tags:{pet:false}}
+    ]},
+  { id:8, port:"寄港7", text:"建物の築年数について、どうお考えですか？",
+    options:[
+      {label:"新築・築浅を重視したい", tags:{budget:"high"}},
+      {label:"こだわらない", tags:{}},
+      {label:"家賃重視。古くても気にしない", tags:{budget:"low"}}
+    ]},
+  { id:9, port:"寄港8", text:"設備・セキュリティで重視したいものは？",
+    options:[
+      {label:"オートロック", tags:{}},
+      {label:"宅配ボックス", tags:{}},
+      {label:"バス・トイレ別", tags:{}},
+      {label:"特にこだわらない", tags:{}}
+    ]},
+  { id:10, port:"寄港9", text:"眺望や階数のご希望は？",
+    options:[
+      {label:"高層階・眺めの良さ重視", tags:{}},
+      {label:"1階で庭・専用スペース希望", tags:{}},
+      {label:"こだわらない", tags:{}}
+    ]},
+  { id:11, port:"寄港10", text:"ご入居はいつ頃をご希望ですか？",
+    options:[
+      {label:"今すぐにでも", tags:{}},
+      {label:"1ヶ月以内", tags:{}},
+      {label:"2〜3ヶ月先", tags:{}},
+      {label:"まだ決めていない", tags:{}}
+    ]},
+  { id:12, port:"入港", text:"お部屋探しで、一番大事にしたいことは？",
+    options:[
+      {label:"家賃の安さ", tags:{budget:"low"}},
+      {label:"立地の良さ", tags:{}},
+      {label:"広さ・設備", tags:{layout:"2LDK"}},
+      {label:"静かな環境", tags:{}}
+    ]}
+];
+
+/* ==========================================================
+   状態管理・ロジック
+   ========================================================== */
+let current = 0;
+const answers = [];
+const profile = { area:null, budget:{low:0,mid:0,high:0}, layout:{"1R":0,"1LDK":0,"2LDK":0,"3LDK":0}, parking:0, pet:0 };
+
+function applyTags(tags){
+  if(tags.area) profile.area = tags.area;
+  if(tags.budget) profile.budget[tags.budget]++;
+  if(tags.layout) profile.layout[tags.layout]++;
+  if(tags.parking === true) profile.parking++;
+  if(tags.parking === false) profile.parking--;
+  if(tags.pet === true) profile.pet++;
+  if(tags.pet === false) profile.pet--;
+}
+
+function topKey(obj){
+  return Object.entries(obj).sort((a,b)=>b[1]-a[1])[0][0];
+}
+
+/* 回答内容を「絞り込みのヒント文」に変換（検索ページ側では自動入力しない。
+   URLパラメータでの絞り込みは三林サイト側の仕様が非公開のため、
+   誤動作を避けて案内文のみで伝える方針としています） */
+const BUDGET_LABEL = { low:"〜4万円台", mid:"5〜6万円台", high:"7万円以上" };
+const LAYOUT_LABEL = { "1R":"1K・1R", "1LDK":"1LDK", "2LDK":"2DK・2LDK", "3LDK":"3LDK以上" };
+
+function buildHintText(){
+  const budget = topKey(profile.budget);
+  const layout = topKey(profile.layout);
+  const hints = [`家賃：${BUDGET_LABEL[budget]}`, `間取り：${LAYOUT_LABEL[layout]}`];
+  if(profile.parking > 0) hints.push("駐車場：あり希望");
+  if(profile.pet > 0) hints.push("ペット：相談したい");
+  return hints.join("／");
+}
+
+/* ==========================================================
+   描画
+   ========================================================== */
+const app = document.getElementById('app');
+
+function renderIntro(){
+  app.innerHTML = `
+    <div class="stage intro">
+      <div class="harbor-bg"></div>
+      <div class="intro-card">
+        <p class="eyebrow">MITSUBAYASHI ROOM VOYAGE</p>
+        <h1>住まい探しの<br>航海図</h1>
+        <p class="lead">12の質問に答えて、下関市内であなたにぴったりの港（お部屋）を見つけましょう。</p>
+        <button class="btn-primary" onclick="startQuiz()">診断をはじめる（航海に出る）</button>
+        <p class="fineprint">所要時間 約2分・入力した内容は診断結果の表示にのみ使用します</p>
+      </div>
+    </div>`;
+}
+
+function startQuiz(){
+  current = 0;
+  answers.length = 0;
+  Object.assign(profile, { area:null, budget:{low:0,mid:0,high:0}, layout:{"1R":0,"1LDK":0,"2LDK":0,"3LDK":0}, parking:0, pet:0 });
+  renderQuestion();
+}
+
+function renderRoute(){
+  const total = QUESTIONS.length;
+  let dots = "";
+  for(let i=0;i<total;i++){
+    const state = i < current ? "done" : (i === current ? "active" : "");
+    dots += `<span class="dot ${state}"></span>`;
+  }
+  const pct = (current/total)*100;
+  return `
+    <div class="route">
+      <div class="route-track">
+        <div class="route-fill" style="width:${pct}%"></div>
+        <div class="boat" style="left:${pct}%">⛵</div>
+      </div>
+      <div class="route-dots">${dots}</div>
+    </div>`;
+}
+
+function renderQuestion(){
+  const q = QUESTIONS[current];
+  app.innerHTML = `
+    <div class="stage quiz">
+      ${renderRoute()}
+      <div class="q-card">
+        <p class="port-label">${q.port} — 第${q.id}問 / 全${QUESTIONS.length}問</p>
+        <h2>${q.text}</h2>
+        <div class="options">
+          ${q.options.map((o,idx)=>`<button class="opt" onclick="selectOption(${idx})">${o.label}</button>`).join("")}
+        </div>
+      </div>
+      ${current>0 ? `<button class="btn-back" onclick="goBack()">← 前の質問に戻る</button>` : ""}
+    </div>`;
+}
+
+function selectOption(idx){
+  const q = QUESTIONS[current];
+  const opt = q.options[idx];
+  answers[current] = opt;
+  applyTags(opt.tags);
+  current++;
+  if(current >= QUESTIONS.length){
+    renderResult();
+  } else {
+    renderQuestion();
+  }
+}
+
+function goBack(){
+  if(current === 0) return;
+  current--;
+  renderQuestion();
+}
+
+function renderResult(){
+  const area = profile.area || "その他";
+  const link = AREA_LINKS[area] || AREA_LINKS["その他"];
+  const hintText = buildHintText();
+
+  app.innerHTML = `
+    <div class="stage result">
+      <div class="harbor-bg"></div>
+      <p class="eyebrow">入港しました</p>
+      <h1>${area}エリアが<br>あなたに合う港のようです</h1>
+      <p class="lead">「${hintText}」の条件で、${link.note}の募集中物件を今すぐご覧いただけます。掲載は三林の最新の空室状況とリアルタイムで連動しています。</p>
+
+      <div class="result-list">
+        <div class="result-card">
+          <p class="area-tag">${area}エリア（${link.note}）</p>
+          <h3>募集中の物件を見る</h3>
+          <p class="spec">${hintText}</p>
+          <p class="note">クリックすると三林の公式サイトの検索結果ページが開きます。ページ内の「絞り込み」欄で、家賃・間取り・駐車場などをさらに細かく指定できます。</p>
+          <a class="btn-primary" href="${link.url}" target="_blank" rel="noopener">この条件に近い物件を見る</a>
+        </div>
+      </div>
+
+      <div class="cta-box">
+        <p>ご希望の条件に近い物件が見当たらない場合や、直接ご相談されたい方はこちらからどうぞ。</p>
+        <div class="cta-buttons">
+          <a class="btn-primary" href="${CONTACT.contactUrl}">この条件で三林に相談する</a>
+          <a class="btn-outline" href="tel:${CONTACT.tel}">電話で相談する（${CONTACT.telLabel}）</a>
+        </div>
+      </div>
+
+      <button class="btn-text" onclick="renderIntro()">もう一度診断する</button>
+    </div>`;
+}
+
+renderIntro();
+</script>
+
+<style>
+:root{
+  --navy:#1C3144;
+  --navy-deep:#12212E;
+  --cream:#F6F1E7;
+  --cream-soft:#EFE7D8;
+  --brass:#B98B36;
+  --brass-soft:#D8B876;
+  --teal:#3E6E6E;
+  --coral:#C1442E;
+  --ink:#20242A;
+}
+
+*{box-sizing:border-box;}
+
+body{
+  margin:0;
+  background:var(--cream);
+  color:var(--ink);
+  font-family:'Zen Kaku Gothic New', sans-serif;
+  min-height:100vh;
+}
+
+h1,h2,h3{
+  font-family:'Shippori Mincho', serif;
+  margin:0 0 .5em 0;
+  color:var(--navy-deep);
+}
+
+.stage{
+  max-width:640px;
+  margin:0 auto;
+  padding:48px 24px 64px;
+  position:relative;
+}
+
+.eyebrow{
+  font-family:'Zen Kaku Gothic New', sans-serif;
+  font-weight:900;
+  letter-spacing:.14em;
+  font-size:12px;
+  color:var(--brass);
+  margin:0 0 12px;
+  text-transform:uppercase;
+}
+
+/* ---- intro / result harbor background ---- */
+.harbor-bg{
+  position:absolute;
+  top:0; left:0; right:0;
+  height:180px;
+  background:
+    radial-gradient(ellipse at 20% 100%, rgba(185,139,54,.25), transparent 60%),
+    linear-gradient(180deg, var(--navy) 0%, var(--navy-deep) 100%);
+  border-radius:0 0 40px 40px;
+  z-index:0;
+}
+
+.intro-card{
+  position:relative;
+  z-index:1;
+  background:var(--cream);
+  border:1px solid var(--cream-soft);
+  border-radius:20px;
+  padding:56px 32px 40px;
+  margin-top:56px;
+  box-shadow:0 20px 40px rgba(28,49,68,.12);
+  text-align:center;
+}
+
+.intro h1{ font-size:34px; line-height:1.3; }
+.lead{ font-size:15px; line-height:1.8; color:#4A4F57; max-width:440px; margin:0 auto 28px; }
+.fineprint{ font-size:12px; color:#8A8F97; margin-top:16px; }
+
+.btn-primary{
+  display:inline-block;
+  background:var(--navy-deep);
+  color:var(--cream);
+  border:none;
+  padding:16px 32px;
+  border-radius:999px;
+  font-family:'Zen Kaku Gothic New', sans-serif;
+  font-weight:700;
+  font-size:15px;
+  cursor:pointer;
+  text-decoration:none;
+  transition:transform .15s ease, background .15s ease;
+}
+.btn-primary:hover{ background:var(--brass); transform:translateY(-2px); }
+
+.btn-outline{
+  display:inline-block;
+  background:transparent;
+  color:var(--navy-deep);
+  border:1.5px solid var(--navy-deep);
+  padding:14px 28px;
+  border-radius:999px;
+  font-weight:700;
+  font-size:14px;
+  text-decoration:none;
+  transition:all .15s ease;
+}
+.btn-outline:hover{ background:var(--navy-deep); color:var(--cream); }
+
+.btn-back, .btn-text{
+  display:block;
+  margin:20px auto 0;
+  background:none;
+  border:none;
+  color:var(--teal);
+  font-family:'Zen Kaku Gothic New', sans-serif;
+  font-size:13px;
+  cursor:pointer;
+  text-decoration:underline;
+}
+
+/* ---- route / progress ---- */
+.route{ margin-bottom:36px; }
+.route-track{
+  position:relative;
+  height:2px;
+  background:var(--cream-soft);
+  border-radius:2px;
+  margin:0 8px 12px;
+}
+.route-fill{
+  position:absolute; top:0; left:0; height:100%;
+  background:var(--brass);
+  border-radius:2px;
+  transition:width .3s ease;
+}
+.boat{
+  position:absolute;
+  top:-11px;
+  transform:translateX(-50%);
+  font-size:20px;
+  transition:left .3s ease;
+}
+.route-dots{
+  display:flex;
+  justify-content:space-between;
+  padding:0 4px;
+}
+.dot{
+  width:6px; height:6px;
+  border-radius:50%;
+  background:var(--cream-soft);
+}
+.dot.done{ background:var(--brass); }
+.dot.active{ background:var(--navy-deep); box-shadow:0 0 0 4px rgba(28,49,68,.12); }
+
+/* ---- question card ---- */
+.q-card{
+  background:#fff;
+  border:1px solid var(--cream-soft);
+  border-radius:18px;
+  padding:36px 28px;
+  box-shadow:0 12px 30px rgba(28,49,68,.06);
+}
+.port-label{
+  font-size:12px;
+  letter-spacing:.08em;
+  color:var(--teal);
+  font-weight:700;
+  margin:0 0 10px;
+}
+.q-card h2{
+  font-size:22px;
+  line-height:1.5;
+  margin-bottom:24px;
+}
+.options{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.opt{
+  text-align:left;
+  padding:16px 20px;
+  border-radius:12px;
+  border:1.5px solid var(--cream-soft);
+  background:var(--cream);
+  font-family:'Zen Kaku Gothic New', sans-serif;
+  font-size:15px;
+  font-weight:500;
+  color:var(--ink);
+  cursor:pointer;
+  transition:all .15s ease;
+}
+.opt:hover{
+  border-color:var(--brass);
+  background:#fff;
+  transform:translateX(4px);
+}
+
+/* ---- result ---- */
+.result h1{ font-size:28px; line-height:1.4; position:relative; z-index:1; margin-top:56px; }
+.result .eyebrow{ position:relative; z-index:1; margin-top:56px; }
+.result .lead{ margin-left:0; text-align:left; position:relative; z-index:1; }
+
+.result-list{
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+  margin:28px 0 32px;
+}
+.result-card{
+  background:#fff;
+  border:1px solid var(--cream-soft);
+  border-radius:16px;
+  padding:24px;
+  box-shadow:0 10px 24px rgba(28,49,68,.06);
+}
+.area-tag{
+  display:inline-block;
+  background:var(--teal);
+  color:#fff;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.05em;
+  padding:4px 10px;
+  border-radius:999px;
+  margin-bottom:10px;
+}
+.result-card h3{ font-size:19px; margin-bottom:6px; }
+.result-card .spec{ font-size:13px; color:var(--navy); font-weight:700; margin:0 0 8px; }
+.result-card .note{ font-size:13px; color:#666; line-height:1.7; margin:0 0 16px; }
+
+.cta-box{
+  background:var(--navy-deep);
+  color:var(--cream);
+  border-radius:18px;
+  padding:28px 24px;
+  text-align:center;
+}
+.cta-box p{ font-size:14px; margin:0 0 18px; opacity:.9; }
+.cta-box .btn-outline{ color:var(--cream); border-color:var(--cream); }
+.cta-box .btn-outline:hover{ background:var(--cream); color:var(--navy-deep); }
+.cta-buttons{
+  display:flex;
+  gap:12px;
+  justify-content:center;
+  flex-wrap:wrap;
+}
+
+@media (max-width:480px){
+  .stage{ padding:32px 16px 48px; }
+  .intro h1{ font-size:28px; }
+  .cta-buttons{ flex-direction:column; }
+  .btn-primary, .btn-outline{ width:100%; text-align:center; }
+}
+</style>
+</body>
+</html>
